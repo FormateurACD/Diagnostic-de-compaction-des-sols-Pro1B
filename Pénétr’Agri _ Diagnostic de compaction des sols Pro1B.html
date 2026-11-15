@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pénétr’Agri : Diagnostic de compaction des sols</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.383.0/dist/umd/lucide.min.js"></script>
+<style>
+:root{--bg:#f6f0e6;--card:#fff;--ink:#2b2f33;--mut:#5d6670;--line:#e3d9c8;--soil:#b85c38;--forest:#2f5d3a;--yel:#f2b705;--steel:#4a5560;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1e1b;--card:#292c28;--ink:#f1ece2;--mut:#b9b3a6;--line:#44483f;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#1c1e1b;--card:#292c28;--ink:#f1ece2;--mut:#b9b3a6;--line:#44483f;color-scheme:dark}
+html,body{margin:0}body{background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.45}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--yel);color:#2b2f33;font-weight:800;border:0;border-radius:12px;padding:12px 20px;cursor:pointer;box-shadow:0 3px 0 #b88a00;transition:transform .1s}
+.btn:active{transform:translateY(2px);box-shadow:0 1px 0 #b88a00}.btn:disabled{opacity:.5;cursor:default}
+.btn.big{font-size:1.25rem;padding:16px 24px;width:100%}
+.tab{flex:1;white-space:nowrap;display:flex;gap:4px;align-items:center;justify-content:center;padding:8px 10px;border-radius:10px;border:2px solid var(--line);background:var(--card);color:var(--ink);font-weight:700;font-size:.9rem;cursor:pointer}
+.tab.on{background:var(--forest);border-color:var(--forest);color:#fff}
+.bdg{display:inline-block;color:#fff;font-weight:700;border-radius:999px;padding:2px 10px;font-size:.78rem}
+input,select{background:var(--bg);color:var(--ink);border:2px solid var(--line);border-radius:10px;padding:10px;font-size:1rem;width:100%}
+select{width:auto;flex:1;min-width:120px}
+.opt{display:block;width:100%;text-align:left;background:var(--bg);color:var(--ink);border:2px solid var(--line);border-radius:10px;padding:10px;margin-top:8px;cursor:pointer;font-size:.95rem}
+.opt.ok{border-color:#2f8f4e;background:#2f8f4e33}.opt.ko{border-color:#c8312b;background:#c8312b33}
+.fb{margin-top:8px;padding:8px 10px;border-radius:10px;font-size:.92rem}.fb.ok{background:#2f8f4e33}.fb.ko{background:#c8312b33}
+th{text-align:left;color:var(--mut);font-size:.8rem}td,th{padding:4px 6px;border-bottom:1px solid var(--line)}
+h2{font-size:1.25rem;font-weight:800;margin:0 0 8px}.mut{color:var(--mut)}
+svg{display:block}
+</style></head>
+<body>
+<header style="background:var(--steel);color:#fff;border-bottom:5px solid var(--yel)">
+<div class="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3"><i data-lucide="gauge" class="w-7 h-7" style="color:var(--yel)"></i><div class="font-extrabold text-lg">Pénétr’Agri</div><div class="text-sm opacity-80 hidden sm:block">Diagnostic de compaction des sols</div></div>
+<div id="prog"></div></header>
+<main id="view" class="max-w-5xl mx-auto p-4"></main>
+<footer class="text-center text-xs mut pb-6 px-4">Valeurs simulées à visée pédagogique · seuils indicatifs</footer>
+<script>
+const $=s=>document.querySelector(s),ic=()=>{try{lucide.createIcons()}catch(e){}},I=(n,c='w-5 h-5')=>`<i data-lucide="${n}" class="${c}"></i>`;
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=v=>v.toFixed(1).replace('.',',');
+const DEPTHS=[10,20,30,40,50],KEYS=['A','B','C'];
+const P={A:{n:'Parcelle A',t:'Prairie permanente',d:'Sol sous prairie depuis plus de 10 ans, jamais travaillé.',v:[.6,.8,.9,1,1.1],c:'#7a5233'},
+B:{n:'Parcelle B',t:'Champ en labour conventionnel',d:'Labour annuel à environ 25–30 cm de profondeur.',v:[.7,1.1,2.8,1.3,1.2],c:'#946036'},
+C:{n:'Parcelle C',t:'Passage d’engins lourds sur sol humide',d:'Récolte en conditions humides, avec une remorque chargée.',v:[2.3,2.8,3,2.7,2.5],c:'#86573b'}};
+const zone=v=>v<1.5?['Zone verte','#2f8f4e']:v<=2?['Zone orange','#e8870e']:['Zone rouge','#c8312b'];
+const S={step:0,name:'',cls:'',cur:'A',busy:false,m:{A:[],B:[],C:[]},q:{},ord:{}};
+const shuffle=a=>{a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+/* --- geometry --- */
+const ang=v=>-120+v/4*240,pt=(cx,cy,r,a)=>{const t=a*Math.PI/180;return[cx+r*Math.sin(t),cy-r*Math.cos(t)]};
+const arc=(cx,cy,r,v1,v2,col,sw)=>{const[x1,y1]=pt(cx,cy,r,ang(v1)),[x2,y2]=pt(cx,cy,r,ang(v2));return`<path d="M${x1.toFixed(1)} ${y1.toFixed(1)}A${r} ${r} 0 0 1 ${x2.toFixed(1)} ${y2.toFixed(1)}" stroke="${col}" stroke-width="${sw}" fill="none"/>`};
+const zones=(cx,cy,r,sw)=>arc(cx,cy,r,0,1.5,'#2f8f4e',sw)+arc(cx,cy,r,1.5,2,'#e8870e',sw)+arc(cx,cy,r,2,4,'#c8312b',sw);
+const mini=(cx,cy,r,v)=>`<circle cx="${cx}" cy="${cy}" r="${r+5}" fill="#4a5560"/><circle cx="${cx}" cy="${cy}" r="${r+2}" fill="#f8f6f0"/>${zones(cx,cy,r-3,r/4.5)}<g transform="rotate(${ang(v)} ${cx} ${cy})"><path d="M${cx-2} ${cy}L${cx} ${cy-r+5}L${cx+2} ${cy}Z" fill="#2b2f33"/></g><circle cx="${cx}" cy="${cy}" r="3" fill="#2b2f33"/>`;
+function logo(){return`<svg viewBox="0 0 200 150" class="w-44 mx-auto" role="img" aria-label="Pénétromètre planté dans une coupe de sol"><rect x="20" y="70" width="160" height="22" fill="#6b4226"/><rect x="20" y="92" width="160" height="26" fill="#a56a42"/><rect x="20" y="118" width="160" height="24" fill="#c68b5c"/><rect x="20" y="64" width="160" height="7" rx="3" fill="#2f5d3a"/><rect x="95" y="52" width="10" height="76" fill="#9aa5b1"/><path d="M95 128h10l-5 14z" fill="#4a5560"/><rect x="96" y="12" width="8" height="12" fill="#4a5560"/><rect x="72" y="4" width="56" height="11" rx="5" fill="#f2b705"/>${mini(100,38,15,1)}</svg>`}
+function penSVG(){let t='';for(let k=1;k<=5;k++){const y=330-30*k;t+=`<path d="M170 ${y}h12" stroke="#2b2f33" stroke-width="2"/><text x="190" y="${y+4}" font-size="12" fill="currentColor">${k*10} cm</text>`}
+const L=(y,x2,y2,txt,ty)=>`<path d="M104 ${y}L${x2} ${y2}" stroke="#b85c38" stroke-width="1.5" stroke-dasharray="4 3"/><circle cx="${x2}" cy="${y2}" r="3" fill="#b85c38"/>${txt}`;
+return`<svg viewBox="0 0 360 360" class="w-full max-w-sm mx-auto" style="color:var(--ink)" role="img" aria-label="Schéma annoté d’un pénétromètre"><rect x="125" y="16" width="110" height="16" rx="8" fill="#f2b705"/><rect x="173" y="32" width="14" height="38" fill="#4a5560"/>${mini(180,106,34,1)}<rect x="176" y="142" width="8" height="188" fill="#9aa5b1"/><path d="M174 330h12l-6 24z" fill="#4a5560"/>${t}
+<g font-size="12" font-weight="700" fill="currentColor"><text x="4" y="26">Poignée</text><text x="4" y="102">Manomètre</text><text x="4" y="117" font-weight="400" font-size="11">MPa / PSI</text><text x="4" y="236">Tige graduée</text><text x="4" y="256" font-weight="400" font-size="11">tous les 10 cm</text><text x="4" y="348">Pointe conique</text></g>
+<g stroke="#b85c38" stroke-width="1.5" stroke-dasharray="4 3" fill="none"><path d="M70 22H125"/><path d="M75 106H140"/><path d="M85 232H174"/><path d="M95 344H172"/></g></svg>`}
+/* --- gauge --- */
+function bigGauge(){let s=`<svg viewBox="0 0 240 240" class="w-full max-w-[250px] mx-auto" role="img" aria-label="Manomètre en MPa"><circle cx="120" cy="120" r="116" fill="#4a5560"/><circle cx="120" cy="120" r="106" fill="#f8f6f0"/>${zones(120,120,92,12)}`;
+for(let i=0;i<=8;i++){const a=ang(i/2),[x1,y1]=pt(120,120,84,a),[x2,y2]=pt(120,120,i%2?78:72,a);s+=`<path d="M${x1} ${y1}L${x2} ${y2}" stroke="#2b2f33" stroke-width="${i%2?1:2}"/>`;if(!(i%2)){const[x,y]=pt(120,120,60,a);s+=`<text x="${x}" y="${y}" font-size="13" font-weight="700" fill="#2b2f33" text-anchor="middle" dominant-baseline="middle">${i/2}</text>`}}
+return s+`<text x="120" y="146" font-size="10" fill="#5d6670" text-anchor="middle">MPa</text><text id="rv" x="120" y="172" font-size="24" font-weight="800" fill="#2b2f33" text-anchor="middle">0,0</text><text id="rz" x="120" y="190" font-size="11" font-weight="700" text-anchor="middle">Zone verte</text><text id="rp" x="120" y="206" font-size="10" fill="#5d6670" text-anchor="middle">≈ 0 PSI</text><g id="nd"><path d="M117 120L120 36L123 120Z" fill="#c8312b"/></g><circle cx="120" cy="120" r="8" fill="#2b2f33"/></svg>`}
+let nv=0,raf=0;
+function showV(v){const g=$('#nd');if(!g)return;nv=v;const c=Math.max(0,v);g.setAttribute('transform',`rotate(${Math.max(-126,Math.min(126,ang(v)))} 120 120)`);const z=zone(c);$('#rv').textContent=fmt(c);$('#rz').textContent=z[0];$('#rz').setAttribute('fill',z[1]);$('#rp').textContent='≈ '+Math.round(c*145)+' PSI'}
+function sweep(to,ms,cb){cancelAnimationFrame(raf);const f0=nv,t0=performance.now();const f=t=>{const k=Math.min(1,(t-t0)/ms),e=1-Math.pow(1-k,3);if(k<1){showV(f0+(to-f0)*e+(to>f0?Math.sin(k*30)*(1-k)*(1-k)*.08:0));raf=requestAnimationFrame(f)}else{showV(to);cb&&cb()}};raf=requestAnimationFrame(f)}
+/* --- soil --- */
+function soilSVG(p,n){let s=`<svg viewBox="0 0 300 400" class="w-full max-w-[340px] mx-auto" role="img" aria-label="Coupe de sol avec pénétromètre"><rect width="300" height="230" fill="#cfe8f3"/><rect y="230" width="300" height="170" fill="${P[p].c}"/><rect y="230" width="300" height="30" fill="#000" opacity=".18"/>`;
+if(p=='A')for(let x=8;x<300;x+=14)s+=`<path d="M${x} 230l-3-14M${x} 230l1-17M${x} 230l4-13" stroke="#2f8f4e" stroke-width="2.5" fill="none"/>`;
+if(p=='B'){s+=`<path d="M0 230q25-7 50 0t50 0t50 0t50 0t50 0t50 0" stroke="#5a3a22" stroke-width="3" fill="#7d5030"/>`}
+if(p=='C')s+=`<rect x="14" y="196" width="62" height="20" rx="4" fill="#f2b705"/><rect x="48" y="180" width="26" height="18" rx="3" fill="#f2b705"/><circle cx="30" cy="218" r="12" fill="#222"/><circle cx="64" cy="220" r="10" fill="#222"/>`;
+for(let d=10;d<=50;d+=10)s+=`<path d="M0 ${230+3*d}H300" stroke="#fff" stroke-opacity=".45" stroke-dasharray="5 4"/><text x="296" y="${226+3*d}" font-size="11" fill="#fff" text-anchor="end" font-weight="700">${d} cm</text>`;
+s+=`<g id="bands">${P[p].v.slice(0,n).map((v,i)=>bandR(i,v)).join('')}</g>`;
+s+=`<g id="probe" style="transform:translate(150px,${230+30*n}px);transition:transform .7s ease-in-out"><rect x="-4" y="-210" width="8" height="198" fill="#9aa5b1"/>`;
+for(let k=1;k<=6;k++)s+=`<path d="M-4 ${-30*k}h8" stroke="#2b2f33" stroke-width="1.5"/>`;
+return s+`<polygon points="-6,-14 6,-14 0,0" fill="#4a5560"/><rect x="-5" y="-222" width="10" height="14" fill="#4a5560"/><rect x="-32" y="-228" width="64" height="14" rx="6" fill="#f2b705"/></g></svg>`}
+const bandR=(i,v)=>`<rect x="0" y="${230+30*i}" width="300" height="30" fill="${zone(v)[1]}" opacity=".42"/>`;
+/* --- screens --- */
+function prog(){const st=['Comprendre','Terrain','Diagnostic'],s=S.step;$('#prog').innerHTML=s<1?'':`<div class="max-w-5xl mx-auto px-4 pb-2"><div class="flex justify-between text-xs mb-1">${st.map((t,i)=>`<span style="opacity:${s>=i+1?1:.55};font-weight:${s==i+1?800:500}">${i+1}. ${t}</span>`).join('')}</div><div style="height:6px;background:#0004;border-radius:9px"><div style="height:6px;border-radius:9px;background:var(--yel);transition:width .4s;width:${Math.min(s,3)*33.34}%"></div></div></div>`}
+function go(n){S.step=n;prog();[s0,s1,s2,s3,s4][n]($('#view'));ic();window.scrollTo(0,0)}
+function s0(v){v.innerHTML=`<div class="card max-w-md mx-auto text-center">${logo()}<h1 class="text-3xl font-black mt-2" style="color:var(--soil)">Pénétr’Agri</h1><p class="font-semibold">Diagnostic de compaction des sols</p><p class="text-sm mut mb-4">15 min · SVT / Agronomie · Première</p><div class="text-left grid gap-3"><label class="font-semibold">Prénom<input id="fn" autocomplete="given-name" value="${esc(S.name)}"></label><label class="font-semibold">Classe<input id="cl" placeholder="ex. 1re G3" value="${esc(S.cls)}"></label></div><p id="er" class="text-sm font-bold mt-2" style="color:#c8312b;min-height:1.2em"></p><button class="btn big mt-1" onclick="start()">${I('play')} C’est parti !</button></div>`}
+function start(){const a=$('#fn').value.trim(),b=$('#cl').value.trim();if(!a||!b){$('#er').textContent='Merci de renseigner ton prénom et ta classe.';(a?$('#cl'):$('#fn')).focus();return}S.name=a;S.cls=b;go(1)}
+function s1(v){v.innerHTML=`<div class="grid md:grid-cols-2 gap-4 items-start"><div class="card"><h2>${I('ruler','w-5 h-5 inline')} Comprendre l’outil</h2><p class="text-sm mut mb-2">Le pénétromètre mesure la résistance du sol à l’enfoncement d’une pointe conique, lue sur le manomètre.</p>${penSVG()}<p class="text-xs mut text-center mt-1">1 MPa ≈ 145 PSI</p></div><div class="card"><h2>La règle agronomique clé</h2>
+${[['#2f8f4e','< 1,5 MPa · Zone verte','Sol meuble : bon enracinement et bonne circulation de l’eau.'],['#e8870e','1,5 à 2 MPa · Zone orange','Compaction modérée : les racines ralentissent.'],['#c8312b','> 2 MPa · Zone rouge','Sol trop compacté (semelle de labour ou tassement) : blocage racinaire et risque d’asphyxie.']].map(z=>`<div class="mb-3"><span class="bdg" style="background:${z[0]}">${z[1]}</span><p class="mt-1 text-sm">${z[2]}</p></div>`).join('')}
+<div class="text-sm p-3 rounded-xl mb-4" style="background:var(--bg)"><b>Astuce de terrain :</b> on enfonce lentement, à vitesse constante, et on lit la valeur tous les 10 cm.</div><button class="btn big" onclick="go(2)">${I('arrow-right')} Passer sur le terrain</button></div></div>`}
+function s2(v){const p=S.cur,pp=P[p],n=S.m[p].length;
+v.innerHTML=`<div class="flex gap-2 mb-3">${KEYS.map(k=>`<button class="tab ${k==p?'on':''}" onclick="tab('${k}')">${S.m[k].length==5?I('check-circle-2','w-4 h-4'):''}${P[k].n}</button>`).join('')}</div><p class="mb-3"><b>${pp.n} · ${pp.t}.</b> <span class="mut">${pp.d}</span></p><div class="grid md:grid-cols-2 gap-4"><div class="card">${soilSVG(p,n)}</div><div class="card">${bigGauge()}<table class="w-full text-sm mt-3"><thead><tr><th>Profondeur</th><th>Résistance</th><th>Zone</th></tr></thead><tbody id="tb"></tbody></table><button id="go" class="btn big mt-3" onclick="act()"></button></div></div>`;
+nv=n?pp.v[n-1]:0;showV(nv);tbl();btnUpd()}
+function tab(k){if(S.busy||k==S.cur)return;S.cur=k;s2($('#view'));ic()}
+function tbl(){const a=S.m[S.cur];$('#tb').innerHTML=DEPTHS.map((d,i)=>a[i]==null?`<tr class="mut"><td>${d} cm</td><td>—</td><td>—</td></tr>`:`<tr><td>${d} cm</td><td><b>${fmt(a[i])} MPa</b></td><td><span class="bdg" style="background:${zone(a[i])[1]}">${zone(a[i])[0]}</span></td></tr>`).join('')}
+function btnUpd(){const b=$('#go');if(!b)return;const a=S.m[S.cur],all=KEYS.every(k=>S.m[k].length==5);b.disabled=S.busy;b.innerHTML=a.length<5?I('arrow-down')+' Enfoncer la tige (+10 cm)':all?I('arrow-right')+' Voir les résultats':I('arrow-right')+' Parcelle suivante';ic()}
+function act(){if(S.busy)return;const p=S.cur,a=S.m[p];
+if(a.length==5){const nx=KEYS.find(k=>S.m[k].length<5);if(nx){S.cur=nx;s2($('#view'));ic()}else go(3);return}
+S.busy=true;btnUpd();const i=a.length,val=P[p].v[i];sweep(0,350);
+$('#probe').style.transform=`translate(150px,${230+30*(i+1)}px)`;
+setTimeout(()=>sweep(val,900,()=>{a.push(val);S.busy=false;const bd=$('#bands');if(bd){bd.insertAdjacentHTML('beforeend',bandR(i,val));tbl();btnUpd()}}),750)}
+/* --- diagnostic --- */
+function chart(k){const v=P[k].v,X=x=>34+x*44,Y=d=>20+d*4;let s=`<svg viewBox="0 0 230 262" class="w-full" style="color:var(--ink)" role="img" aria-label="Courbe de pénétrométrie ${P[k].n}"><text x="115" y="12" font-size="11" font-weight="800" text-anchor="middle" fill="currentColor">${P[k].n} · ${P[k].t.split(' ').slice(0,2).join(' ')}</text><rect x="${X(0)}" y="20" width="${X(1.5)-X(0)}" height="200" fill="#2f8f4e" opacity=".25"/><rect x="${X(1.5)}" y="20" width="${X(2)-X(1.5)}" height="200" fill="#e8870e" opacity=".3"/><rect x="${X(2)}" y="20" width="${X(4)-X(2)}" height="200" fill="#c8312b" opacity=".22"/>`;
+for(let d=0;d<=50;d+=10)s+=`<path d="M34 ${Y(d)}H210" stroke="currentColor" stroke-opacity=".2"/><text x="28" y="${Y(d)+3}" font-size="9" text-anchor="end" fill="currentColor">${d}</text>`;
+for(let x=0;x<=4;x++)s+=`<path d="M${X(x)} 20V220" stroke="currentColor" stroke-opacity=".2"/><text x="${X(x)}" y="233" font-size="9" text-anchor="middle" fill="currentColor">${x}</text>`;
+s+=`<text x="122" y="251" font-size="9.5" text-anchor="middle" fill="currentColor">Résistance (MPa)</text><text transform="translate(9 120) rotate(-90)" font-size="9.5" text-anchor="middle" fill="currentColor">Profondeur (cm)</text><polyline fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" points="${v.map((x,i)=>X(x)+','+Y(DEPTHS[i])).join(' ')}"/>`;
+return s+v.map((x,i)=>`<circle cx="${X(x)}" cy="${Y(DEPTHS[i])}" r="4.5" fill="${zone(x)[1]}" stroke="#fff" stroke-width="1.5"><title>${DEPTHS[i]} cm : ${fmt(x)} MPa</title></circle>`).join('')+`</svg>`}
+const OPT={2:['Sous la semelle, l’air circule mal : vers de terre et bactéries aérobies manquent d’oxygène et l’eau stagne.','Le sol devient trop riche en oxygène et les bactéries aérobies prolifèrent.','Les racines poussent plus vite car le sol dur leur offre un meilleur appui.','Aucune conséquence : seule la couche de surface compte pour la vie du sol.'],
+3:['Semer un couvert à racines pivotantes (radis fourrager) ou passer un décompacteur sans retournement.','Labourer plus profond avec la charrue pour retourner la semelle.','Repasser avec des engins lourds pour bien tasser le sol.','Irriguer abondamment pour ramollir la couche dure.']};
+const EXP={1:'La parcelle B montre un pic brutal (2,8 MPa) à 30 cm entre deux couches meubles : c’est la semelle de labour, tassée par la charrue et les roues au fond du labour.',2:'Les pores écrasés laissent peu passer l’air et l’eau : manque d’O₂ pour les organismes aérobies et stagnation de l’eau au-dessus de la semelle (risque d’asphyxie des racines).',3:'Les racines pivotantes ou un décompacteur fissurent la semelle sans retourner le sol ni enfouir sa vie biologique. Les autres actions aggravent ou ne règlent pas le tassement.'};
+function s3(v){S.ord={2:shuffle([0,1,2,3]),3:shuffle([0,1,2,3])};v.innerHTML=`<h2>Résultats : 3 courbes de pénétrométrie</h2><div class="grid md:grid-cols-3 gap-3">${KEYS.map(k=>`<div class="card">${chart(k)}</div>`).join('')}</div><h2 class="mt-5">${I('stethoscope','w-5 h-5 inline')} Diagnostic agronomique</h2><div id="qs" class="grid gap-3"></div>`;renderQs()}
+const fb=n=>S.q[n]?`<p class="fb ${S.q[n].ok?'ok':'ko'}">${S.q[n].ok?'✔ Bien vu ! ':'✘ Pas tout à fait. '}${EXP[n]}</p>`:'';
+function renderQs(){const q=S.q,d=!!q[1];let h=`<div class="card"><b>1. Quelle parcelle présente une semelle de labour, et à quelle profondeur exacte ?</b><div class="flex flex-wrap gap-2 my-2"><select id="qp" ${d?'disabled':''}><option value="">Parcelle…</option>${KEYS.map(k=>`<option ${d&&q[1].p==k?'selected':''}>${k}</option>`).join('')}</select><select id="qd" ${d?'disabled':''}><option value="">Profondeur…</option>${DEPTHS.map(x=>`<option ${d&&q[1].d==x?'selected':''} value="${x}">${x} cm</option>`).join('')}</select></div>${d?'':`<button class="btn" onclick="a1()">Valider</button>`}${fb(1)}</div>`;
+[2,3].forEach(n=>{h+=`<div class="card"><b>${n}. ${n==2?'Quelle est la conséquence biologique de cette couche tassée pour la vie du sol ?':'Quelle est la meilleure solution pour réparer la parcelle B ?'}</b>${S.ord[n].map(i=>{const a=q[n],cl=a?(i==0?'ok':a.i==i?'ko':''):'';return`<button class="opt ${cl}" ${a?'disabled':''} onclick="ans(${n},${i})">${OPT[n][i]}</button>`}).join('')}${fb(n)}</div>`});
+const all=[1,2,3].every(n=>q[n]);h+=all?`<button class="btn big" onclick="go(4)">${I('flag')} Voir mon bilan</button>`:`<p class="text-sm mut text-center">Réponds aux 3 questions pour accéder au bilan.</p>`;$('#qs').innerHTML=h;ic()}
+function a1(){const p=$('#qp').value,d=$('#qd').value;if(!p||!d){alert('Choisis une parcelle et une profondeur.');return}S.q[1]={p,d,ok:p=='B'&&d=='30'};renderQs()}
+function ans(n,i){if(S.q[n])return;S.q[n]={i,ok:i==0};renderQs()}
+const score=()=>[1,2,3].filter(n=>S.q[n]&&S.q[n].ok).length;
+const METHOD=['Enfoncer la tige verticalement, lentement et à vitesse régulière (sol ressuyé, ni sec ni détrempé).','Lire le manomètre tous les 10 cm et noter chaque valeur en MPa.','Comparer aux seuils : < 1,5 vert · 1,5 à 2 orange · > 2 MPa rouge.','Interpréter la courbe : un pic isolé = semelle de labour ; une résistance forte dès la surface = tassement.','Agir : couvert à racines pivotantes ou décompacteur sans retournement, et éviter les engins lourds sur sol humide.'];
+function bilanTxt(){const s=score();return`Bilan Pénétr’Agri · ${S.name} (${S.cls})\nScore de diagnostic : ${s}/3\n\nRelevés (MPa, de 10 à 50 cm) :\n${KEYS.map(k=>`- ${P[k].n} (${P[k].t}) : ${P[k].v.map(fmt).join(' ; ')}`).join('\n')}\n\nDiagnostic : semelle de labour sur la parcelle B à 30 cm (2,8 MPa). Conséquence : manque d’oxygène pour les organismes aérobies et stagnation de l’eau. Solution : couvert à racines pivotantes (radis fourrager) ou décompacteur sans retournement.\n\nFiche méthode :\n${METHOD.map((m,i)=>`${i+1}. ${m}`).join('\n')}`}
+function s4(v){const s=score(),msg=s==3?'Excellent diagnostic, tu lis les sols comme un pro !':s==2?'Bon travail, il reste un point à consolider.':'Relis la fiche méthode et retente le terrain.';
+v.innerHTML=`<div class="card max-w-xl mx-auto"><div class="text-center"><div class="text-5xl">${s==3?'🏆':s==2?'🌱':'🔧'}</div><h2 class="mt-2">Bilan de ${esc(S.name)} · ${esc(S.cls)}</h2><div class="text-4xl font-black" style="color:var(--soil)">${s}/3</div><p class="mut">${msg}</p></div><div class="p-4 rounded-xl mt-4" style="background:var(--bg);border-left:6px solid var(--yel)"><b>${I('clipboard-list','w-5 h-5 inline')} Fiche Méthode à retenir</b><ol class="list-decimal pl-5 mt-2 text-sm grid gap-1">${METHOD.map(m=>`<li>${m}</li>`).join('')}</ol></div><div class="grid sm:grid-cols-2 gap-3 mt-4"><button id="cp" class="btn" onclick="copyB()">${I('copy')} Copier mon bilan</button><button class="btn" style="background:var(--steel);color:#fff;box-shadow:0 3px 0 #2b3138" onclick="restart()">${I('rotate-ccw')} Recommencer</button></div></div>`}
+function copyB(){const t=bilanTxt(),done=()=>{const b=$('#cp');b.innerHTML=I('check')+' Bilan copié !';ic()};
+const fb=()=>{const a=document.createElement('textarea');a.value=t;a.style.cssText='position:fixed;opacity:0';document.body.appendChild(a);a.select();try{document.execCommand('copy')}catch(e){}a.remove();done()};
+navigator.clipboard?navigator.clipboard.writeText(t).then(done,fb):fb()}
+function restart(){Object.assign(S,{step:0,name:'',cls:'',cur:'A',busy:false,m:{A:[],B:[],C:[]},q:{},ord:{}});go(0)}
+go(0);
+</script></body></html>
